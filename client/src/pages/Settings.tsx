@@ -2,12 +2,14 @@ import React, { useEffect, useState } from "react";
 import { api } from "../services/api";
 import type { Voice, UserPreferences } from "../types";
 import { getCacheStats, clearAllOfflineCache } from "../services/offlineStorage";
+import { useAudioPlayer } from "../context/AudioPlayerContext";
 import {
   Trash2,
   Check,
 } from "lucide-react";
 
 export const Settings: React.FC = () => {
+  const { setRate } = useAudioPlayer();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [preferences, setPreferences] = useState<UserPreferences>({
     id: "default",
@@ -30,13 +32,25 @@ export const Settings: React.FC = () => {
 
   const loadSettings = async () => {
     try {
+      // First check local cache for immediate display
+      const localPrefs = localStorage.getItem("user_preferences");
+      if (localPrefs) {
+        try {
+          const parsed = JSON.parse(localPrefs);
+          setPreferences((prev) => ({ ...prev, ...parsed }));
+        } catch {}
+      }
+
       const [vList, prefs, stats] = await Promise.all([
         api.getVoices(),
         api.getPreferences(),
         getCacheStats(),
       ]);
       setVoices(vList);
-      if (prefs) setPreferences(prefs);
+      if (prefs) {
+        setPreferences(prefs);
+        localStorage.setItem("user_preferences", JSON.stringify(prefs));
+      }
       setCacheStats(stats);
     } catch (err) {
       console.warn("Failed to load settings:", err);
@@ -46,12 +60,22 @@ export const Settings: React.FC = () => {
   const handleSavePreferences = async (updated: Partial<UserPreferences>) => {
     const next = { ...preferences, ...updated };
     setPreferences(next);
+    localStorage.setItem("user_preferences", JSON.stringify(next));
+
+    // If speed was updated, also update current audio player speed immediately
+    if (updated.playbackSpeed !== undefined) {
+      setRate(updated.playbackSpeed);
+    }
+
     try {
       await api.updatePreferences(next);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2000);
     } catch (err) {
-      alert("Erro ao salvar preferências.");
+      console.error("Erro ao salvar no servidor, mantido localmente:", err);
+      // Still show success because it was saved locally
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2000);
     }
   };
 
@@ -73,9 +97,9 @@ export const Settings: React.FC = () => {
       </div>
 
       {savedSuccess && (
-        <div className="p-2.5 rounded-lg border border-white/[0.1] bg-zinc-900 text-zinc-200 text-xs flex items-center gap-2">
-          <Check className="w-3.5 h-3.5" />
-          <span>Salvo com sucesso</span>
+        <div className="p-2.5 rounded-lg border border-white/[0.1] bg-zinc-900 text-zinc-200 text-xs flex items-center gap-2 transition-all">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Preferências salvas com sucesso!</span>
         </div>
       )}
 
@@ -107,8 +131,9 @@ export const Settings: React.FC = () => {
             {[0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((rate) => (
               <button
                 key={rate}
+                type="button"
                 onClick={() => handleSavePreferences({ playbackSpeed: rate })}
-                className={`py-1 text-xs rounded-md transition-colors ${
+                className={`py-1.5 text-xs rounded-md transition-colors ${
                   preferences.playbackSpeed === rate
                     ? "bg-white text-zinc-950 font-medium"
                     : "bg-zinc-900 text-zinc-400 border border-white/[0.04] hover:text-white"

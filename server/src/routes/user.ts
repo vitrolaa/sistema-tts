@@ -9,16 +9,22 @@ router.get("/preferences", async (req: Request, res: Response): Promise<void> =>
     const { userId } = req.query;
 
     let preferences = null;
-    if (userId && typeof userId === "string") {
+    if (userId && typeof userId === "string" && userId !== "anonymous-user") {
       preferences = await prisma.userPreferences.findUnique({
         where: { userId },
       });
     }
 
     if (!preferences) {
+      preferences = await prisma.userPreferences.findFirst({
+        where: { userId: null },
+      });
+    }
+
+    if (!preferences) {
       preferences = {
         id: "default",
-        userId: userId ? String(userId) : null,
+        userId: null,
         defaultVoice: process.env.DEFAULT_VOICE || "pt-BR-FranciscaNeural",
         language: process.env.DEFAULT_LANGUAGE || "pt-BR",
         playbackSpeed: 1.0,
@@ -39,25 +45,41 @@ router.put("/preferences", async (req: Request, res: Response): Promise<void> =>
   try {
     const { userId, defaultVoice, language, playbackSpeed, theme } = req.body;
 
-    const targetUserId = userId || "anonymous-user";
+    let validUserId: string | null = null;
+    if (userId && typeof userId === "string" && userId !== "anonymous-user") {
+      const userExists = await prisma.user.findUnique({ where: { id: userId } });
+      if (userExists) {
+        validUserId = userExists.id;
+      }
+    }
 
-    // Upsert preference
-    const updated = await prisma.userPreferences.upsert({
-      where: { userId: targetUserId },
-      update: {
-        defaultVoice: defaultVoice || undefined,
-        language: language || undefined,
-        playbackSpeed: typeof playbackSpeed === "number" ? playbackSpeed : undefined,
-        theme: theme || undefined,
-      },
-      create: {
-        userId: targetUserId,
-        defaultVoice: defaultVoice || "pt-BR-FranciscaNeural",
-        language: language || "pt-BR",
-        playbackSpeed: typeof playbackSpeed === "number" ? playbackSpeed : 1.0,
-        theme: theme || "dark",
-      },
+    // Find existing preferences record
+    const existing = await prisma.userPreferences.findFirst({
+      where: { userId: validUserId },
     });
+
+    let updated;
+    if (existing) {
+      updated = await prisma.userPreferences.update({
+        where: { id: existing.id },
+        data: {
+          defaultVoice: defaultVoice || undefined,
+          language: language || undefined,
+          playbackSpeed: typeof playbackSpeed === "number" ? playbackSpeed : undefined,
+          theme: theme || undefined,
+        },
+      });
+    } else {
+      updated = await prisma.userPreferences.create({
+        data: {
+          userId: validUserId,
+          defaultVoice: defaultVoice || process.env.DEFAULT_VOICE || "pt-BR-FranciscaNeural",
+          language: language || process.env.DEFAULT_LANGUAGE || "pt-BR",
+          playbackSpeed: typeof playbackSpeed === "number" ? playbackSpeed : 1.0,
+          theme: theme || "dark",
+        },
+      });
+    }
 
     res.json(updated);
   } catch (err) {
@@ -76,24 +98,37 @@ router.post("/progress", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const targetUserId = userId || "anonymous-user";
+    let validUserId: string | null = null;
+    if (userId && typeof userId === "string" && userId !== "anonymous-user") {
+      const userExists = await prisma.user.findUnique({ where: { id: userId } });
+      if (userExists) {
+        validUserId = userExists.id;
+      }
+    }
 
-    const progress = await prisma.playbackProgress.upsert({
+    // Upsert or update progress
+    const existing = await prisma.playbackProgress.findFirst({
       where: {
-        userId_audioId: {
-          userId: targetUserId,
-          audioId,
-        },
-      },
-      update: {
-        currentTime,
-      },
-      create: {
-        userId: targetUserId,
+        userId: validUserId,
         audioId,
-        currentTime,
       },
     });
+
+    let progress;
+    if (existing) {
+      progress = await prisma.playbackProgress.update({
+        where: { id: existing.id },
+        data: { currentTime },
+      });
+    } else {
+      progress = await prisma.playbackProgress.create({
+        data: {
+          userId: validUserId,
+          audioId,
+          currentTime,
+        },
+      });
+    }
 
     res.json(progress);
   } catch (err) {
@@ -107,14 +142,16 @@ router.get("/progress/:audioId", async (req: Request, res: Response): Promise<vo
   try {
     const { audioId } = req.params;
     const { userId } = req.query;
-    const targetUserId = (userId as string) || "anonymous-user";
 
-    const progress = await prisma.playbackProgress.findUnique({
+    let validUserId: string | null = null;
+    if (userId && typeof userId === "string" && userId !== "anonymous-user") {
+      validUserId = userId;
+    }
+
+    const progress = await prisma.playbackProgress.findFirst({
       where: {
-        userId_audioId: {
-          userId: targetUserId,
-          audioId,
-        },
+        userId: validUserId,
+        audioId,
       },
     });
 
