@@ -1,0 +1,71 @@
+// Prisma Schema for VozLivre
+// Supports SQLite for out-of-the-box zero-setup local dev, and PostgreSQL for production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String             @id @default(uuid())
+  email        String             @unique
+  passwordHash String?
+  createdAt    DateTime           @default(now())
+  texts        Text[]
+  preferences  UserPreferences?
+  progress     PlaybackProgress[]
+}
+
+model Text {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String
+  content   String
+  favorite  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audios    Audio[]
+}
+
+model Audio {
+  id        String             @id @default(uuid())
+  textId    String
+  status    String             @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  filePath  String?
+  fileSize  Int?
+  duration  Float              @default(0)
+  voice     String             @default("pt-BR-FranciscaNeural")
+  language  String             @default("pt-BR")
+  format    String             @default("mp3")
+  createdAt DateTime           @default(now())
+  text      Text               @relation(fields: [textId], references: [id], onDelete: Cascade)
+  progress  PlaybackProgress[]
+}
+
+model PlaybackProgress {
+  id          String   @id @default(uuid())
+  userId      String?
+  audioId     String
+  currentTime Float    @default(0)
+  updatedAt   DateTime @updatedAt
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audio       Audio    @relation(fields: [audioId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, audioId])
+}
+
+model UserPreferences {
+  id            String   @id @default(uuid())
+  userId        String?  @unique
+  defaultVoice  String   @default("pt-BR-FranciscaNeural")
+  language      String   @default("pt-BR")
+  playbackSpeed Float    @default(1.0)
+  theme         String   @default("dark")
+  updatedAt     DateTime @updatedAt
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
